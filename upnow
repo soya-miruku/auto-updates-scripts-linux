@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+
+# upnow - Update all package managers on CachyOS
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}==>${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}!${NC} $1"
+}
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Main update function
+main() {
+    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║        System Update Tool            ║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+    echo
+
+    # Update Pacman packages
+    print_status "Updating system packages with pacman..."
+    if sudo pacman -Syu; then
+        print_success "Pacman update completed"
+    else
+        print_error "Pacman update failed"
+    fi
+    echo
+
+    # Update AUR packages with yay
+    if command_exists yay; then
+        print_status "Updating AUR packages with yay..."
+        if yay -Syu; then
+            print_success "AUR update completed"
+        else
+            print_error "AUR update failed"
+        fi
+    else
+        print_warning "yay not found, skipping AUR updates"
+    fi
+    echo
+
+    # Update Snap packages
+    if command_exists snap; then
+        print_status "Updating Snap packages..."
+        if sudo snap refresh; then
+            print_success "Snap update completed"
+        else
+            print_error "Snap update failed"
+        fi
+    else
+        print_warning "snap not found, skipping"
+    fi
+    echo
+
+    # Update Flatpak packages
+    if command_exists flatpak; then
+        print_status "Updating Flatpak packages..."
+        if flatpak update -y; then
+            print_success "Flatpak update completed"
+        else
+            print_error "Flatpak update failed"
+        fi
+    else
+        print_warning "flatpak not found, skipping"
+    fi
+    echo
+
+    # Update npm packages
+    if command_exists npm; then
+        print_status "Updating global npm packages..."
+        if npm update -g; then
+            print_success "npm update completed"
+        else
+            print_error "npm update failed"
+        fi
+    else
+        print_warning "npm not found, skipping"
+    fi
+    echo
+
+    # Update Homebrew packages
+    if command_exists brew; then
+        print_status "Updating Homebrew..."
+        if brew update; then
+            print_status "Upgrading Homebrew packages..."
+            if brew upgrade; then
+                print_success "Homebrew update completed"
+                # Handle any linking issues
+                if brew doctor 2>&1 | grep -q "link"; then
+                    print_warning "Some formulae may need linking. Run 'brew doctor' for details."
+                fi
+            else
+                print_error "Homebrew upgrade failed"
+            fi
+        else
+            print_error "Homebrew update failed"
+        fi
+    else
+        print_warning "Homebrew not found, skipping"
+    fi
+    echo
+
+    # Update Rust toolchain
+    if command_exists rustup; then
+        print_status "Updating Rust toolchain..."
+        if rustup update; then
+            print_success "Rust update completed"
+        else
+            print_error "Rust update failed"
+        fi
+    else
+        print_warning "rustup not found, skipping"
+    fi
+    echo
+
+    # Update Bun
+    if command_exists bun; then
+        print_status "Updating Bun..."
+        if bun upgrade; then
+            print_success "Bun update completed"
+        else
+            print_error "Bun update failed"
+        fi
+    else
+        print_warning "bun not found, skipping"
+    fi
+    echo
+
+    # Update SurrealDB
+    if command_exists surreal; then
+        print_status "Updating SurrealDB..."
+        if surreal upgrade; then
+            print_success "SurrealDB update completed"
+        else
+            print_error "SurrealDB update failed"
+        fi
+    else
+        print_warning "surreal not found, skipping"
+    fi
+    echo
+
+    # Update uv (Python package manager)
+    if command_exists uv; then
+        print_status "Updating uv..."
+        if uv self update; then
+            print_success "uv update completed"
+        else
+            print_error "uv update failed"
+        fi
+    else
+        print_warning "uv not found, skipping"
+    fi
+    echo
+
+
+    # Update pip packages (with warning about managed environment)
+    if command_exists pip3; then
+        print_status "Checking pip packages..."
+        print_warning "Note: pip is in a managed environment. Use 'pipx' or virtual environments for Python packages."
+        pip3 list --outdated 2/dev/null || true
+    else
+        print_warning "pip3 not found, skipping"
+    fi
+    echo
+
+    # Summary
+    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║        Update Complete!              ║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+    
+    # Check if reboot is recommended
+    if [ -f /var/lib/pacman/system_upgrade ]; then
+        print_warning "A system reboot is recommended due to core package updates."
+    fi
+}
+
+    # Parameter handling
+    case "$1" in
+        all)
+            main
+            ;;
+        list)
+            echo -e "Available updates: pacman, yay, snap, flatpak, npm, brew, rustup, bun, surreal, uv"
+            ;;
+        pacman|yay|snap|flatpak|npm|brew|rustup|bun|surreal|uv)
+            print_status "Updating $1..."
+            "$1"
+            ;;
+        *)
+            echo "Usage: upnow [all|list|pacman|yay|snap|flatpak|npm|brew|rustup|bun|surreal|uv]"
+            ;;
+    esac
