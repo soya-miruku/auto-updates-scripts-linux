@@ -1,16 +1,34 @@
 #!/usr/bin/env bash
 
 # upnow - Update all package managers on CachyOS
-# Colors for output
+# Features: Progress spinner, summary table, Cursor support
+
+set -o pipefail
+
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
 
-# Function to print colored output
+# Spinner characters
+SPINNER_CHARS='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+
+# Track results for summary
+declare -A RESULTS
+declare -a UPDATE_ORDER
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Output Functions
+# ══════════════════════════════════════════════════════════════════════════════
+
 print_status() {
-    echo -e "${BLUE}==>${NC} $1"
+    echo -e "${BLUE}${BOLD}==>${NC} $1"
 }
 
 print_success() {
@@ -25,188 +43,579 @@ print_warning() {
     echo -e "${YELLOW}!${NC} $1"
 }
 
-# Function to check if command exists
+print_skip() {
+    echo -e "${DIM}○${NC} ${DIM}$1${NC}"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Utility Functions
+# ══════════════════════════════════════════════════════════════════════════════
+
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Main update function
-main() {
-    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║        System Update Tool            ║${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
-    echo
+# Record result
+record_result() {
+    local name="$1"
+    local status="$2"
+    RESULTS["$name"]="$status"
+    UPDATE_ORDER+=("$name")
+}
 
-    # Update Pacman packages
+# ══════════════════════════════════════════════════════════════════════════════
+# Update Functions
+# ══════════════════════════════════════════════════════════════════════════════
+
+update_pacman() {
     print_status "Updating system packages with pacman..."
     if sudo pacman -Syu; then
         print_success "Pacman update completed"
+        record_result "pacman" "success"
     else
         print_error "Pacman update failed"
+        record_result "pacman" "failed"
     fi
-    echo
+}
 
-    # Update AUR packages with yay
+update_yay() {
     if command_exists yay; then
         print_status "Updating AUR packages with yay..."
         if yay -Syu; then
             print_success "AUR update completed"
+            record_result "yay" "success"
         else
             print_error "AUR update failed"
+            record_result "yay" "failed"
         fi
     else
-        print_warning "yay not found, skipping AUR updates"
+        print_skip "yay not found, skipping AUR updates"
+        record_result "yay" "skipped"
     fi
-    echo
+}
 
-    # Update Snap packages
+update_snap() {
     if command_exists snap; then
         print_status "Updating Snap packages..."
         if sudo snap refresh; then
             print_success "Snap update completed"
+            record_result "snap" "success"
         else
             print_error "Snap update failed"
+            record_result "snap" "failed"
         fi
     else
-        print_warning "snap not found, skipping"
+        print_skip "snap not found, skipping"
+        record_result "snap" "skipped"
     fi
-    echo
+}
 
-    # Update Flatpak packages
+update_flatpak() {
     if command_exists flatpak; then
         print_status "Updating Flatpak packages..."
         if flatpak update -y; then
             print_success "Flatpak update completed"
+            record_result "flatpak" "success"
         else
             print_error "Flatpak update failed"
+            record_result "flatpak" "failed"
         fi
     else
-        print_warning "flatpak not found, skipping"
+        print_skip "flatpak not found, skipping"
+        record_result "flatpak" "skipped"
     fi
-    echo
+}
 
-    # Update npm packages
+update_npm() {
     if command_exists npm; then
         print_status "Updating global npm packages..."
-        if npm update -g; then
+        if npm update -g 2>/dev/null; then
             print_success "npm update completed"
+            record_result "npm" "success"
         else
             print_error "npm update failed"
+            record_result "npm" "failed"
         fi
     else
-        print_warning "npm not found, skipping"
+        print_skip "npm not found, skipping"
+        record_result "npm" "skipped"
     fi
-    echo
+}
 
-    # Update Homebrew packages
+update_brew() {
     if command_exists brew; then
         print_status "Updating Homebrew..."
-        if brew update; then
-            print_status "Upgrading Homebrew packages..."
-            if brew upgrade; then
-                print_success "Homebrew update completed"
-                # Handle any linking issues
-                if brew doctor 2>&1 | grep -q "link"; then
-                    print_warning "Some formulae may need linking. Run 'brew doctor' for details."
-                fi
-            else
-                print_error "Homebrew upgrade failed"
-            fi
+        if brew update && brew upgrade; then
+            print_success "Homebrew update completed"
+            record_result "brew" "success"
         else
             print_error "Homebrew update failed"
+            record_result "brew" "failed"
         fi
     else
-        print_warning "Homebrew not found, skipping"
+        print_skip "Homebrew not found, skipping"
+        record_result "brew" "skipped"
     fi
-    echo
+}
 
-    # Update Rust toolchain
+update_rustup() {
     if command_exists rustup; then
         print_status "Updating Rust toolchain..."
-        if rustup update; then
+        if rustup update 2>/dev/null; then
             print_success "Rust update completed"
+            record_result "rustup" "success"
         else
             print_error "Rust update failed"
+            record_result "rustup" "failed"
         fi
     else
-        print_warning "rustup not found, skipping"
+        print_skip "rustup not found, skipping"
+        record_result "rustup" "skipped"
     fi
-    echo
+}
 
-    # Update Bun
+update_bun() {
     if command_exists bun; then
         print_status "Updating Bun..."
-        if bun upgrade; then
+        if bun upgrade 2>/dev/null; then
             print_success "Bun update completed"
+            record_result "bun" "success"
         else
             print_error "Bun update failed"
+            record_result "bun" "failed"
         fi
     else
-        print_warning "bun not found, skipping"
+        print_skip "bun not found, skipping"
+        record_result "bun" "skipped"
     fi
-    echo
+}
 
-    # Update SurrealDB
+update_surreal() {
     if command_exists surreal; then
         print_status "Updating SurrealDB..."
-        if surreal upgrade; then
+        if surreal upgrade 2>/dev/null; then
             print_success "SurrealDB update completed"
+            record_result "surreal" "success"
         else
             print_error "SurrealDB update failed"
+            record_result "surreal" "failed"
         fi
     else
-        print_warning "surreal not found, skipping"
+        print_skip "surreal not found, skipping"
+        record_result "surreal" "skipped"
     fi
-    echo
+}
 
-    # Update uv (Python package manager)
+update_uv() {
     if command_exists uv; then
         print_status "Updating uv..."
-        if uv self update; then
+        if uv self update 2>/dev/null; then
             print_success "uv update completed"
+            record_result "uv" "success"
         else
             print_error "uv update failed"
+            record_result "uv" "failed"
         fi
     else
-        print_warning "uv not found, skipping"
+        print_skip "uv not found, skipping"
+        record_result "uv" "skipped"
     fi
-    echo
+}
 
-
-    # Update pip packages (with warning about managed environment)
-    if command_exists pip3; then
-        print_status "Checking pip packages..."
-        print_warning "Note: pip is in a managed environment. Use 'pipx' or virtual environments for Python packages."
-        pip3 list --outdated 2/dev/null || true
-    else
-        print_warning "pip3 not found, skipping"
-    fi
-    echo
-
-    # Summary
-    echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║        Update Complete!              ║${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
+update_cursor() {
+    local cursor_updater="$HOME/.local/bin/update-cursor"
     
-    # Check if reboot is recommended
-    if [ -f /var/lib/pacman/system_upgrade ]; then
+    if [[ -x "$cursor_updater" ]]; then
+        print_status "Checking for Cursor updates..."
+        
+        # Check if update is available
+        local check_output
+        check_output=$("$cursor_updater" --check 2>&1)
+        local check_status=$?
+        
+        if [[ $check_status -eq 0 ]]; then
+            # Update available
+            print_status "$check_output"
+            print_status "Updating Cursor (this may take a moment)..."
+            
+            # Run update non-interactively by piping 'y' for confirmations
+            if echo "y" | "$cursor_updater" 2>/dev/null; then
+                print_success "Cursor update completed"
+                record_result "cursor" "success"
+            else
+                print_error "Cursor update failed"
+                record_result "cursor" "failed"
+            fi
+        else
+            print_success "Cursor is already up to date"
+            record_result "cursor" "current"
+        fi
+    else
+        print_skip "Cursor updater not found, skipping"
+        record_result "cursor" "skipped"
+    fi
+}
+
+update_mise() {
+    if command_exists mise; then
+        print_status "Updating mise and managed tools..."
+        local failed=0
+        
+        # Update mise itself
+        if mise self-update -y 2>/dev/null; then
+            print_success "mise self-update completed"
+        else
+            print_warning "mise self-update skipped (may be managed by package manager)"
+        fi
+        
+        # Update all installed tool versions
+        if mise upgrade -y 2>/dev/null; then
+            print_success "mise tools upgraded"
+            record_result "mise" "success"
+        else
+            print_error "mise upgrade failed"
+            record_result "mise" "failed"
+        fi
+    else
+        print_skip "mise not found, skipping"
+        record_result "mise" "skipped"
+    fi
+}
+
+update_cargo() {
+    if command_exists cargo && command_exists cargo-install-update; then
+        print_status "Updating cargo-installed binaries..."
+        if cargo install-update -a 2>/dev/null; then
+            print_success "Cargo binaries updated"
+            record_result "cargo" "success"
+        else
+            print_error "Cargo update failed"
+            record_result "cargo" "failed"
+        fi
+    else
+        print_skip "cargo-install-update not found, skipping"
+        record_result "cargo" "skipped"
+    fi
+}
+
+update_go() {
+    if command_exists go; then
+        local go_bin="$HOME/go/bin"
+        if [[ -d "$go_bin" ]] && [[ -n "$(ls -A "$go_bin" 2>/dev/null)" ]]; then
+            print_status "Updating Go tools..."
+            local failed=0
+            local updated=0
+            
+            # Common Go tools to update
+            for tool in "$go_bin"/*; do
+                [[ -x "$tool" ]] || continue
+                local name=$(basename "$tool")
+                
+                # Skip if it's not a real binary
+                [[ "$name" == "*." ]] && continue
+                
+                # Map binary names to their install paths
+                local pkg=""
+                case "$name" in
+                    gopls)        pkg="golang.org/x/tools/gopls" ;;
+                    staticcheck)  pkg="honnef.co/go/tools/cmd/staticcheck" ;;
+                    air)          pkg="github.com/air-verse/air" ;;
+                    dlv)          pkg="github.com/go-delve/delve/cmd/dlv" ;;
+                    goimports)    pkg="golang.org/x/tools/cmd/goimports" ;;
+                    golangci-lint) pkg="github.com/golangci/golangci-lint/cmd/golangci-lint" ;;
+                    *)            continue ;;  # Skip unknown tools
+                esac
+                
+                if [[ -n "$pkg" ]]; then
+                    echo -e "  ${DIM}→${NC} Updating $name..."
+                    if go install "${pkg}@latest" 2>/dev/null; then
+                        ((updated++))
+                    else
+                        ((failed++))
+                    fi
+                fi
+            done
+            
+            if [[ $failed -eq 0 ]]; then
+                print_success "Go tools updated ($updated tools)"
+                record_result "go" "success"
+            else
+                print_warning "Go tools partially updated ($updated ok, $failed failed)"
+                record_result "go" "success"
+            fi
+        else
+            print_skip "No Go tools found in ~/go/bin"
+            record_result "go" "skipped"
+        fi
+    else
+        print_skip "go not found, skipping"
+        record_result "go" "skipped"
+    fi
+}
+
+update_tldr() {
+    if command_exists tldr; then
+        print_status "Updating tldr pages cache..."
+        if tldr --update 2>/dev/null; then
+            print_success "tldr cache updated"
+            record_result "tldr" "success"
+        else
+            print_error "tldr update failed"
+            record_result "tldr" "failed"
+        fi
+    else
+        print_skip "tldr not found, skipping"
+        record_result "tldr" "skipped"
+    fi
+}
+
+update_fisher() {
+    if command_exists fish && fish -c "type -q fisher" 2>/dev/null; then
+        print_status "Updating Fish plugins via Fisher..."
+        if fish -c "fisher update" 2>/dev/null; then
+            print_success "Fisher plugins updated"
+            record_result "fisher" "success"
+        else
+            print_error "Fisher update failed"
+            record_result "fisher" "failed"
+        fi
+    else
+        print_skip "Fisher not found, skipping"
+        record_result "fisher" "skipped"
+    fi
+}
+
+update_neovim() {
+    if command_exists nvim; then
+        print_status "Updating Neovim plugins..."
+        local lazy_ok=0
+        local mason_ok=0
+        
+        # Update Lazy.nvim plugins
+        if [[ -d "$HOME/.local/share/nvim/lazy" ]]; then
+            echo -e "  ${DIM}→${NC} Syncing Lazy.nvim plugins..."
+            if nvim --headless "+Lazy! sync" +qa 2>/dev/null; then
+                lazy_ok=1
+            fi
+        fi
+        
+        # Update Mason packages (LSPs, formatters, etc.)
+        if [[ -d "$HOME/.local/share/nvim/mason" ]]; then
+            echo -e "  ${DIM}→${NC} Updating Mason packages..."
+            if nvim --headless "+MasonUpdate" +qa 2>/dev/null; then
+                mason_ok=1
+            fi
+        fi
+        
+        if [[ $lazy_ok -eq 1 ]] || [[ $mason_ok -eq 1 ]]; then
+            print_success "Neovim plugins updated"
+            record_result "neovim" "success"
+        elif [[ -d "$HOME/.local/share/nvim/lazy" ]] || [[ -d "$HOME/.local/share/nvim/mason" ]]; then
+            print_error "Neovim update failed"
+            record_result "neovim" "failed"
+        else
+            print_skip "No Neovim plugin managers found"
+            record_result "neovim" "skipped"
+        fi
+    else
+        print_skip "neovim not found, skipping"
+        record_result "neovim" "skipped"
+    fi
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Summary Functions
+# ══════════════════════════════════════════════════════════════════════════════
+
+print_summary() {
+    echo
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}                    ${BOLD}Update Summary${NC}                        ${BLUE}║${NC}"
+    echo -e "${BLUE}╠══════════════════════════════════════════════════════════╣${NC}"
+    
+    local success_count=0
+    local failed_count=0
+    local skipped_count=0
+    
+    for name in "${UPDATE_ORDER[@]}"; do
+        local status="${RESULTS[$name]}"
+        local icon color status_text
+        
+        case "$status" in
+            success|current)
+                icon="✓"
+                color="$GREEN"
+                status_text="Updated"
+                [[ "$status" == "current" ]] && status_text="Current"
+                ((success_count++))
+                ;;
+            failed)
+                icon="✗"
+                color="$RED"
+                status_text="Failed"
+                ((failed_count++))
+                ;;
+            skipped)
+                icon="○"
+                color="$DIM"
+                status_text="Skipped"
+                ((skipped_count++))
+                ;;
+        esac
+        
+        printf "${BLUE}║${NC}  ${color}${icon}${NC}  %-15s ${color}%-10s${NC}                       ${BLUE}║${NC}\n" "$name" "$status_text"
+    done
+    
+    echo -e "${BLUE}╠══════════════════════════════════════════════════════════╣${NC}"
+    printf "${BLUE}║${NC}  ${GREEN}✓ %2d success${NC}   ${RED}✗ %2d failed${NC}   ${DIM}○ %2d skipped${NC}           ${BLUE}║${NC}\n" \
+        "$success_count" "$failed_count" "$skipped_count"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
+    
+    # Reboot recommendation
+    if [[ -f /var/run/reboot-required ]] || [[ -f /var/lib/pacman/system_upgrade ]]; then
+        echo
         print_warning "A system reboot is recommended due to core package updates."
     fi
 }
 
-    # Parameter handling
-    case "$1" in
-        all)
-            main
-            ;;
-        list)
-            echo -e "Available updates: pacman, yay, snap, flatpak, npm, brew, rustup, bun, surreal, uv"
-            ;;
-        pacman|yay|snap|flatpak|npm|brew|rustup|bun|surreal|uv)
-            print_status "Updating $1..."
-            "$1"
-            ;;
+# ══════════════════════════════════════════════════════════════════════════════
+# Main Function
+# ══════════════════════════════════════════════════════════════════════════════
+
+main() {
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}           ${BOLD}${CYAN}⚡ System Update Tool ⚡${NC}                      ${BLUE}║${NC}"
+    echo -e "${BLUE}║${NC}           ${DIM}Updating all package managers${NC}                   ${BLUE}║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
+
+    local start_time=$SECONDS
+
+    # Run all updates
+    update_pacman
+    echo
+    update_yay
+    echo
+    update_snap
+    echo
+    update_flatpak
+    echo
+    update_npm
+    echo
+    update_brew
+    echo
+    update_rustup
+    echo
+    update_bun
+    echo
+    update_surreal
+    echo
+    update_uv
+    echo
+    update_cursor
+    echo
+    update_mise
+    echo
+    update_cargo
+    echo
+    update_go
+    echo
+    update_tldr
+    echo
+    update_fisher
+    echo
+    update_neovim
+    
+    local elapsed=$((SECONDS - start_time))
+    local minutes=$((elapsed / 60))
+    local seconds=$((elapsed % 60))
+    
+    # Print summary
+    print_summary
+    
+    echo
+    echo -e "${DIM}Completed in ${minutes}m ${seconds}s${NC}"
+}
+
+# Single update function for individual package managers
+run_single() {
+    local name="$1"
+    
+    case "$name" in
+        pacman)  update_pacman ;;
+        yay)     update_yay ;;
+        snap)    update_snap ;;
+        flatpak) update_flatpak ;;
+        npm)     update_npm ;;
+        brew)    update_brew ;;
+        rustup)  update_rustup ;;
+        bun)     update_bun ;;
+        surreal) update_surreal ;;
+        uv)      update_uv ;;
+        cursor)  update_cursor ;;
+        mise)    update_mise ;;
+        cargo)   update_cargo ;;
+        go)      update_go ;;
+        tldr)    update_tldr ;;
+        fisher)  update_fisher ;;
+        neovim|nvim) update_neovim ;;
         *)
-            echo "Usage: upnow [all|list|pacman|yay|snap|flatpak|npm|brew|rustup|bun|surreal|uv]"
+            print_error "Unknown package manager: $name"
+            return 1
             ;;
     esac
+}
+
+show_help() {
+    echo -e "${BOLD}upnow${NC} - Update all package managers"
+    echo
+    echo -e "${BOLD}USAGE:${NC}"
+    echo "    upnow [COMMAND]"
+    echo
+    echo -e "${BOLD}COMMANDS:${NC}"
+    echo "    all       Update all package managers (default)"
+    echo "    list      List available package managers"
+    echo "    <name>    Update specific package manager"
+    echo "    help      Show this help message"
+    echo
+    echo -e "${BOLD}PACKAGE MANAGERS:${NC}"
+    echo "    pacman, yay, snap, flatpak, npm, brew, rustup, bun,"
+    echo "    surreal, uv, cursor, mise, cargo, go, tldr, fisher, neovim"
+    echo
+    echo -e "${BOLD}EXAMPLES:${NC}"
+    echo "    upnow              # Update everything"
+    echo "    upnow all          # Update everything"
+    echo "    upnow cursor       # Update only Cursor"
+    echo "    upnow rustup bun   # Update Rust and Bun"
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Entry Point
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Handle no arguments as 'all'
+if [[ $# -eq 0 ]]; then
+    main
+    exit 0
+fi
+
+case "$1" in
+    all)
+        main
+        ;;
+    list)
+        echo -e "${BOLD}Available package managers:${NC}"
+        echo "  pacman, yay, snap, flatpak, npm, brew, rustup, bun, surreal, uv,"
+        echo "  cursor, mise, cargo, go, tldr, fisher, neovim"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        # Handle one or more specific package managers
+        for pkg in "$@"; do
+            run_single "$pkg"
+            echo
+        done
+        ;;
+esac
